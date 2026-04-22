@@ -1,0 +1,476 @@
+---
+title: "DataViz Project Code"
+output:
+  pdf_document: default
+  html_document: default
+date: "2026-02-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(ggrepel)
+library(gganimate)
+library(tweenr)
+library(rlang)
+library(gifski)
+library(colorblindr)
+
+```
+
+
+```{r}
+# Step 1: Sort Data
+
+## separate csvs for macthes
+matches_2024<-read.csv("atp_matches_2024.csv")
+matches_2023<-read.csv("atp_matches_2023.csv")
+matches_2022<-read.csv("atp_matches_2022.csv")
+matches_2021<-read.csv("atp_matches_2021.csv")
+matches_2020<-read.csv("atp_matches_2020.csv")
+matches_2019<-read.csv("atp_matches_2019.csv")
+matches_2018<-read.csv("atp_matches_2018.csv")
+matches_2017<-read.csv("atp_matches_2017.csv")
+matches_2016<-read.csv("atp_matches_2016.csv")
+matches_2015<-read.csv("atp_matches_2015.csv")
+```
+
+```{r}
+# Step 1: Sort Data
+## merge for all matches from 2015-2014 
+atp_matches<-bind_rows(
+  matches_2015,
+  matches_2016,
+  matches_2017,
+  matches_2018,
+  matches_2019,
+  matches_2020,
+  matches_2021,
+  matches_2022,
+  matches_2023,
+  matches_2024
+)
+```
+
+```{r}
+# Step 1: Sort Data
+
+## drop columns I don't need/fixyear and tourney level 
+matches_keep <- atp_matches %>%
+  mutate(year=substr(atp_matches$tourney_date,1,4))%>%
+  select(tourney_name, year, surface, tourney_level,
+    winner_name, winner_ioc,
+    loser_name,  loser_ioc,
+    w_ace, w_df, w_svpt, w_1stIn, w_1stWon, w_2ndWon,
+    w_bpSaved, w_bpFaced,
+    l_ace, l_df, l_svpt, l_1stIn, l_1stWon, l_2ndWon,
+    l_bpSaved, l_bpFaced,
+    minutes
+  )
+  
+```
+
+```{r}
+# Step 1: Sort Data
+##split into by player not the match
+winners<-matches_keep%>%
+  select(tourney_name,year,surface,tourney_level,winner_name,winner_ioc,w_ace,w_df,w_svpt,w_1stWon,w_2ndWon,w_bpSaved,w_bpFaced,minutes)%>%
+  rename(player_name=winner_name,
+         country=winner_ioc,
+         ace=w_ace,
+         df=w_df,
+         svpt=w_svpt,
+         firstwon=w_1stWon,
+         secondwon=w_2ndWon,
+         bpsaved=w_bpSaved,
+         bpfaced=w_bpFaced)%>%
+  mutate(result="win")
+  
+losers<-matches_keep%>%
+  select(tourney_name,year,surface,tourney_level,loser_name,loser_ioc,l_ace,l_df,l_svpt,l_1stWon,l_2ndWon,l_bpSaved,l_bpFaced,minutes)%>%
+  rename(player_name=loser_name,
+         country=loser_ioc,
+         ace=l_ace,
+         df=l_df,
+         svpt=l_svpt,
+         firstwon=l_1stWon,
+         secondwon=l_2ndWon,
+         bpsaved=l_bpSaved,
+         bpfaced=l_bpFaced)%>%
+  mutate(result="loss")
+
+##all player stats 
+
+players_long <- bind_rows(winners, losers)%>%
+  filter(surface!="Carpet")
+
+```
+
+
+
+```{r}
+#Step 2: Assemble Data for Viz 1 (map) and Viz 3 (surface exposure bar chart_ 
+country_surface_summary <- players_long %>%
+  group_by(country, surface, year) %>%
+  summarize(
+    n_matches = n(),
+    n_won  = sum(result == "win"),
+    win_rate = n_won / n_matches,
+    mean_aces_per_match = mean(ace, na.rm = TRUE),
+    mean_match_minutes = mean(minutes, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  drop_na()
+
+##save as csv for Tableau
+write.csv(country_surface_summary, file = "country_surface_summary.csv", row.names = FALSE)
+
+```
+```{r}
+#Viz 3
+
+library(shiny)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+
+country_stats<-read.csv("country_stats.csv")
+
+
+ui <- fluidPage(
+  titlePanel("Country Surface Performance Explorer"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("country", "Select Country:", 
+                  choices = unique(country_stats$country),
+                  selected = "Spain"),
+      sliderInput("yearRange", "Select Year Range:",
+                  min = min(country_stats$year, na.rm = TRUE),
+                  max = max(country_stats$year, na.rm = TRUE),
+                  value = c(min(country_stats$year, na.rm = TRUE),
+                            max(country_stats$year, na.rm = TRUE)),
+                  step = 1),
+      checkboxGroupInput("surface", "Select Surfaces:",
+                         choices = c("Hard", "Clay", "Grass"),
+                         selected = c("Hard", "Clay", "Grass"))
+    ),
+    
+    mainPanel(
+      plotOutput("winPlot"),
+      plotOutput("metricPlot")
+    )
+  )
+)
+
+
+server <- function(input, output, session) {
+  
+  filtered_data <- reactive({
+    country_stats %>%
+      filter(country == input$country,
+             year >= input$yearRange[1],
+             year <= input$yearRange[2],
+             surface %in% input$surface)
+  })
+  
+
+  output$winPlot <- renderPlot({
+    df <- filtered_data()
+    ggplot(df, aes(x = year, y = win_pct, color = surface)) + scale_color_manual(values = c(
+      "Clay" = "#F58E03",   
+      "Grass" = "#6C935C",  
+      "Hard" = "#003E93"    
+    ))+
+      geom_line(size = 1.2) +
+      geom_point() +
+      labs(title = paste(input$country, "Win % by Surface Over Time"),
+           x = "Year", y = "Win Rate") +
+      theme_minimal()
+  })
+  
+
+  output$metricPlot <- renderPlot({
+    df <- filtered_data() %>%
+      pivot_longer(cols = c(avg_minutes, avg_aces, avg_df),
+                   names_to = "metric", values_to = "value")
+    
+    ggplot(df, aes(x = surface, y = value, fill = surface)) +
+      scale_fill_manual(values = c(
+        "Clay" = "#F58E03",   
+        "Grass" = "#6C935C",  
+        "Hard" = "#003E93"    
+      ))+
+      geom_bar(stat = "identity", position = "dodge") +
+      facet_wrap(~metric, scales = "free_y", labeller = as_labeller(
+        c(avg_minutes = "Avg Match Minutes", avg_aces = "Avg Aces", avg_df = "Avg Double Faults")
+      )) +
+      labs(title = paste(input$country, "Other Metrics by Surface"),
+           x = "Surface", y = "Value") +
+      theme_minimal()
+  })
+  
+}
+
+shinyApp(ui, server)
+
+```
+
+
+```{r}
+# Step 3: Assemble Data for Viz 4 (scatter plot)
+country_surface_exposure <- country_surface_summary %>%
+  filter(country%in%c("USA","FRA","GBR","GER","CAN","RUS","AUS","ARG","ITA","ESP"))%>%
+  group_by(country, year) %>%
+  mutate(
+    total_matches = sum(n_matches),
+    pct_surface = n_matches / total_matches
+  ) %>%
+  select(country,surface,year,total_matches,pct_surface,win_rate)%>%
+  ungroup()
+
+scatter_data <- country_surface_exposure %>%
+  group_by(country, surface) %>%
+  summarize(
+    pct_surface = mean(pct_surface),
+    win_rate = mean(win_rate),
+    .groups = "drop"
+  )
+```
+
+```{r}
+#visualization 4: Surface exposure versus win rate
+surfaceexposurescatter<-ggplot(scatter_data, aes(x = pct_surface, y = win_rate, color=surface)) +
+  geom_point(alpha = 0.7,size = 1.5)+
+geom_text_repel(
+  data = subset(scatter_data, country %in% c("USA","ESP","AUS","ARG")),
+  aes(label = country),
+  size = 3
+) +
+  scale_color_manual(values=c("#F58E03", "#6C935C", "#003E93"))+
+  geom_smooth(method = "lm", se = FALSE, color = "black",size=1.2) +
+  facet_wrap(~surface,nrow=1, scales = "free_x") +
+  labs(
+    title = "Surface Exposure Versus Win Rate for Top Ten Countries",
+    subtitle = "Performance is driven by experience, not country-specific surface advantage",
+    x = "Proportion of Matches on Surface",
+    y = "Average Win Rate") +
+  theme_minimal() 
+
+ggsave("surfacexposureescatter.png",surfaceexposurescatter)
+```
+```{r}
+# Viz 5
+library(shiny)
+library(dplyr)
+library(ggplot2)
+
+
+country_surface_exposure<-read.csv("country_surface_exposure.csv")
+
+ui <- fluidPage(
+  titlePanel("Tennis Win Rate Comparison by Country"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("country1", "Select First Country:",
+                  choices = unique(country_surface_exposure$country),
+                  selected = unique(country_surface_exposure$country)[1]),
+      
+      selectInput("country2", "Select Second Country:",
+                  choices = unique(country_surface_exposure$country),
+                  selected = unique(country_surface_exposure$country)[2])
+    ),
+    
+    mainPanel(
+      plotOutput("boxplot"),
+      br(),
+      h4("Summary Statistics"),
+      tableOutput("summary_stats")
+    )
+  )
+)
+
+server <- function(input, output) {
+  
+  filtered_data <- reactive({
+    country_surface_exposure %>%
+      filter(country %in% c(input$country1, input$country2))
+  })
+  
+  output$boxplot <- renderPlot({
+    ggplot(filtered_data(), aes(x = surface, y = win_rate, fill = surface)) +
+      geom_boxplot(alpha = 0.7) +
+      scale_fill_manual(values = c(
+        "Clay" = "#F58E03",   
+        "Grass" = "#6C935C",  
+        "Hard" = "#003E93"    
+      )) +
+      geom_jitter(width = 0.2, alpha = 0.3, color = "black") +
+      facet_wrap(~ country) +
+      labs(
+        title = "When comparing two countries, it becomes clear that their win rates by surface are not all that different",
+        x = "Surface",
+        y = "Win Rate"
+      ) +
+      theme_minimal()
+  })
+  
+  output$summary_stats <- renderTable({
+    filtered_data() %>%
+      group_by(country, surface) %>%
+      summarize(
+        mean_win_rate = round(mean(win_rate, na.rm = TRUE), 3),
+        median_win_rate = round(median(win_rate, na.rm = TRUE), 3),
+        sd_win_rate = round(sd(win_rate, na.rm = TRUE), 3),
+        n = n(),
+        .groups = "drop"
+      )
+  })
+}
+
+shinyApp(ui = ui, server = server)
+```
+
+
+
+```{r}
+#viz 6: line graph animation 
+
+rank_data <- players_long %>%
+  group_by(year, surface, country) %>%
+  summarize(
+    win_rate = mean(result == "win"),
+    .groups = "drop"
+  )
+
+rank_data <- rank_data %>%
+  group_by(year, surface) %>%
+  mutate(
+    rank = rank(-win_rate, ties.method = "first") 
+  ) %>%
+  ungroup()%>%
+  filter(country%in%c("USA","FRA","GER","GBR","ITA","CAN","RUS","ARG","AUS","ESP"))
+
+
+rank_data <- rank_data %>%
+  mutate(year = as.numeric(as.character(year))) %>%
+  filter(!is.na(year))
+
+rank_data <- rank_data %>%
+  mutate(highlight = ifelse(country %in% c("ESP", "RUS"), country, "Other"))
+
+
+anim <- ggplot(rank_data, aes(x = year, y = rank, group = country, color = highlight)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~surface) +
+  scale_y_reverse() +  
+  scale_color_manual(values = c("RUS" = "#003E93", "ESP" = "#F59E03", "Other" = "gray80")) +
+  scale_x_continuous(breaks = seq(min(rank_data$year), max(rank_data$year), by = 1)) +
+  labs(
+    x = "Year",
+    y = "Rank by Win Rate (1 = Best)",
+    color = "Country"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  transition_reveal(year)
+
+animanimation_gif<-animate(anim, duration = 5, fps = 20, width = 900, height = 600, renderer = gifski_renderer())
+anim_save("anim.gif",animation=animation_gif)
+```
+
+
+```{r}
+# Step 4: Assemble Data for viz 7 and 8 ()
+country_overall <- players_long %>%
+  filter(country%in%c("USA","FRA","GBR","GER","CAN","RUS","AUS","ARG","ITA","ESP"))%>%
+  group_by(country) %>%
+  summarize(
+    overall_wr = mean(result == "win")
+  )
+
+country_surface <- players_long %>%
+  filter(country%in%c("USA","FRA","GBR","GER","CAN","RUS","AUS","ARG","ITA","ESP"))%>%
+  group_by(country, surface) %>%
+  summarize(
+    n_matches=n(),
+    win_rate = mean(result == "win"),
+    .groups = "drop"
+  )
+surface_relative <- country_surface %>%
+  filter(country%in%c("USA","FRA","GBR","GER","CAN","RUS","AUS","ARG","ITA","ESP"))%>%
+  left_join(country_overall, by = "country") %>%
+  mutate(
+    rel_performance = win_rate - overall_wr
+  )%>%
+  mutate(spec_score = max(rel_performance) - min(rel_performance))
+
+surface_exposure<-country_surface %>%
+  group_by(country) %>%
+  mutate(
+    total_matches = sum(n_matches),
+    pct_surface = n_matches / total_matches
+  ) %>%
+  ungroup()
+
+```
+
+```{r}
+#Viz 7: are countries above or below their overall win rate for a certain surface?
+relativeperfheat<-ggplot(surface_relative, aes(x = surface, y = country, fill = rel_performance)) +
+  geom_tile() +
+  scale_fill_gradient2(
+    low = "#F58E03",
+    mid = "white",
+    high = "#6C935C",
+    midpoint = 0,
+    name = "Relative Performance"
+  ) +
+  labs(
+    title = "Relative Surface Performance by Country",
+    subtitle = "Win rate on surface minus overall country win rate",
+    x = "Surface",
+    y = "Country"
+  ) +
+  theme_minimal()
+
+
+ggsave("relativeperfheat.png",relativeperfheat)
+
+```
+
+
+```{r}
+# viz 8:specialization bar chart
+
+specialization <- surface_relative %>%
+  group_by(country) %>%
+  mutate(
+    best_surface = surface[which.max(rel_performance)]
+  ) %>%
+  summarize(
+    spec_score = max(rel_performance) - min(rel_performance),
+    best_surface = first(best_surface)
+  ) %>%
+  arrange(desc(spec_score))
+
+spec_bar<-ggplot(specialization, aes(x = reorder(country,spec_score), y = spec_score,fill=best_surface))+ylim(0, 0.3) +
+  geom_col() +
+  scale_fill_manual(values=c("#F58E03", "#6C935C", "#003E93"),name = "Best Surface")+
+  geom_text(aes(label = round(spec_score,2),nudge_y=.008))+
+  labs(
+    title = "How Specialized Are Countries Across Surfaces?",
+    subtitle = "Range of relative performance across clay, grass, and hard courts is small",
+    x = "Country",
+    y = "Difference Between Win Rate on Best and Worst Surfaces"
+  ) +
+  theme_minimal()
+
+ggsave("spec_bar.png",spec_bar)
+```
+
