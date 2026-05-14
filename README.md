@@ -28,9 +28,9 @@ This project includes multiple visual approaches:
 
 ## Key Findings
 - Most countries show relatively small differences in performance across surfaces.
-- Surface exposure strongly influences perceived “specialization,” suggesting opportunity may be mistaken for skill.
-- Only a few countries (notably Spain and Russia in certain periods) show temporary surface dominance, but this is not consistent over time.
-- Overall, true surface specialization appears weaker than commonly assumed.
+- Surface exposure strongly influences perceived “specialization,” suggesting opportunity may be mistaken for inherent ability.
+- Argentina performed significantly worse on grass than on other surfaces, but that can likely be attributed to less experience on grass.
+- Overall, the concept of surface specialization appears weaker than commonly assumed.
 
 ## Interpretation
 The results challenge the traditional narrative of surface specialization in tennis. Instead of fixed surface strengths, performance appears to fluctuate over time and is heavily influenced by exposure and scheduling rather than inherent surface-specific skill.
@@ -40,7 +40,7 @@ The results challenge the traditional narrative of surface specialization in ten
 - ggplot2
 - shiny
 - dplyr
-- data.table / tidyverse
+- tidyverse
 
 ## How to View the Project
 - The full write-up is available as a static HTML report.
