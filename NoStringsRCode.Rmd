@@ -136,27 +136,30 @@ library(dplyr)
 library(ggplot2)
 library(tidyr)
 
-
-country_stats<-read.csv("country_stats.csv")
-
+country_stats <- read.csv("country_stats.csv")
 
 ui <- fluidPage(
   titlePanel("Country Surface Performance Explorer"),
   
   sidebarLayout(
     sidebarPanel(
-      selectInput("country", "Select Country:", 
-                  choices = unique(country_stats$country),
-                  selected = "Spain"),
+      
+      selectInput("country", "Select Country:", choices = NULL),
+      
       sliderInput("yearRange", "Select Year Range:",
                   min = min(country_stats$year, na.rm = TRUE),
                   max = max(country_stats$year, na.rm = TRUE),
                   value = c(min(country_stats$year, na.rm = TRUE),
                             max(country_stats$year, na.rm = TRUE)),
                   step = 1),
+      
       checkboxGroupInput("surface", "Select Surfaces:",
                          choices = c("Hard", "Clay", "Grass"),
-                         selected = c("Hard", "Clay", "Grass"))
+                         selected = c("Hard", "Clay", "Grass")),
+      
+      selectInput("view_type", "View win % as:",
+                  choices = c("Trend (Line)", 
+                              "Comparison (Dot Plot)"))
     ),
     
     mainPanel(
@@ -166,53 +169,106 @@ ui <- fluidPage(
   )
 )
 
-
 server <- function(input, output, session) {
   
+  observe({
+    
+    valid <- country_stats %>%
+      filter(year >= input$yearRange[1],
+             year <= input$yearRange[2],
+             surface %in% input$surface) %>%
+      group_by(country) %>%
+      summarize(n = n(), .groups = "drop") %>%
+      filter(n > 10) %>%
+      pull(country)
+    
+
+    if (length(valid) == 0) {
+      valid <- country_stats$country %>% unique()
+    }
+    
+    updateSelectInput(session, "country",
+                      choices = valid,
+                      selected = valid[1])
+  })
+  
+
   filtered_data <- reactive({
-    country_stats %>%
+    req(input$country)
+    
+    df <- country_stats %>%
       filter(country == input$country,
              year >= input$yearRange[1],
              year <= input$yearRange[2],
              surface %in% input$surface)
+    
+    df
   })
   
-
+  
+  # Win % plot
   output$winPlot <- renderPlot({
+    
     df <- filtered_data()
-    ggplot(df, aes(x = year, y = win_pct, color = surface)) + scale_color_manual(values = c(
-      "Clay" = "#F58E03",   
-      "Grass" = "#6C935C",  
-      "Hard" = "#003E93"    
-    ))+
-      geom_line(size = 1.2) +
-      geom_point() +
-      labs(title = paste(input$country, "Win % by Surface Over Time"),
-           x = "Year", y = "Win Rate") +
-      theme_minimal()
+    
+    if (input$view_type == "Trend (Line)") {
+      
+      ggplot(df, aes(x = year, y = win_pct, color = surface)) +
+        geom_line(size = 1.2) +
+        geom_point() +
+        scale_color_manual(values = c(
+          "Clay" = "#F58E03",
+          "Grass" = "#6C935C",
+          "Hard" = "#003E93"
+        )) +
+        labs(title = paste(input$country, "Win % Over Time"),
+             x = "Year", y = "Win Rate") +
+        theme_minimal()
+      
+    } else if (input$view_type == "Comparison (Dot Plot)") {
+      summary_df <- df %>%
+        group_by(surface) %>%
+        summarize(avg_win = mean(win_pct, na.rm = TRUE),
+                  .groups = "drop")
+      
+      ggplot(summary_df, aes(x = surface, y = avg_win, color = surface)) +
+        geom_point(size = 10) +
+        scale_color_manual(values = c(
+          "Clay" = "#F58E03",
+          "Grass" = "#6C935C",
+          "Hard" = "#003E93"
+        )) +
+        labs(title = paste(input$country, "Average Win % by Surface"),
+             x = "Surface", y = "Average Win Rate") +
+        theme_minimal()
+    }
   })
-  
-
+  # metric boxes
   output$metricPlot <- renderPlot({
-    df <- filtered_data() %>%
+    
+    df <- filtered_data()
+    
+    df_long <- df %>%
       pivot_longer(cols = c(avg_minutes, avg_aces, avg_df),
                    names_to = "metric", values_to = "value")
     
-    ggplot(df, aes(x = surface, y = value, fill = surface)) +
+    ggplot(df_long, aes(x = surface, y = value, fill = surface)) +
+      geom_boxplot() +
+      facet_wrap(~metric, scales = "free_y",
+                 labeller = as_labeller(
+                   c(avg_minutes = "Avg Match Minutes",
+                     avg_aces = "Avg Aces",
+                     avg_df = "Avg Double Faults")
+                 )) +
       scale_fill_manual(values = c(
-        "Clay" = "#F58E03",   
-        "Grass" = "#6C935C",  
-        "Hard" = "#003E93"    
-      ))+
-      geom_bar(stat = "identity", position = "dodge") +
-      facet_wrap(~metric, scales = "free_y", labeller = as_labeller(
-        c(avg_minutes = "Avg Match Minutes", avg_aces = "Avg Aces", avg_df = "Avg Double Faults")
+        "Clay" = "#F58E03",
+        "Grass" = "#6C935C",
+        "Hard" = "#003E93"
       )) +
-      labs(title = paste(input$country, "Other Metrics by Surface"),
+      labs(title = paste(input$country, "Performance Metrics by Surface"),
            x = "Surface", y = "Value") +
       theme_minimal()
   })
-  
 }
 
 shinyApp(ui, server)
@@ -268,28 +324,32 @@ library(shiny)
 library(dplyr)
 library(ggplot2)
 
+country_surface_exposure <- read.csv("country_surface_exposure.csv")
 
-country_surface_exposure<-read.csv("country_surface_exposure.csv")
+surface_colors <- c(
+  "Clay" = "#F58E03",
+  "Grass" = "#6C935C",
+  "Hard" = "#003E93"
+)
 
 ui <- fluidPage(
   titlePanel("Tennis Win Rate Comparison by Country"),
   
   sidebarLayout(
     sidebarPanel(
+      
       selectInput("country1", "Select First Country:",
-                  choices = unique(country_surface_exposure$country),
-                  selected = unique(country_surface_exposure$country)[1]),
+                  choices = unique(country_surface_exposure$country)),
       
       selectInput("country2", "Select Second Country:",
-                  choices = unique(country_surface_exposure$country),
-                  selected = unique(country_surface_exposure$country)[2])
+                  choices = unique(country_surface_exposure$country)),
+      
+      selectInput("view_type", "Visualization Type:",
+                  choices = c("Boxplot", "Density Plot"))
     ),
     
     mainPanel(
-      plotOutput("boxplot"),
-      br(),
-      h4("Summary Statistics"),
-      tableOutput("summary_stats")
+      plotOutput("plot")
     )
   )
 )
@@ -301,38 +361,45 @@ server <- function(input, output) {
       filter(country %in% c(input$country1, input$country2))
   })
   
-  output$boxplot <- renderPlot({
-    ggplot(filtered_data(), aes(x = surface, y = win_rate, fill = surface)) +
-      geom_boxplot(alpha = 0.7) +
-      scale_fill_manual(values = c(
-        "Clay" = "#F58E03",   
-        "Grass" = "#6C935C",  
-        "Hard" = "#003E93"    
-      )) +
-      geom_jitter(width = 0.2, alpha = 0.3, color = "black") +
-      facet_wrap(~ country) +
-      labs(
-        title = "When comparing two countries, it becomes clear that their win rates by surface are not all that different",
-        x = "Surface",
-        y = "Win Rate"
-      ) +
-      theme_minimal()
-  })
-  
-  output$summary_stats <- renderTable({
-    filtered_data() %>%
-      group_by(country, surface) %>%
-      summarize(
-        mean_win_rate = round(mean(win_rate, na.rm = TRUE), 3),
-        median_win_rate = round(median(win_rate, na.rm = TRUE), 3),
-        sd_win_rate = round(sd(win_rate, na.rm = TRUE), 3),
-        n = n(),
-        .groups = "drop"
-      )
+  output$plot <- renderPlot({
+    
+    df <- filtered_data()
+
+    if (input$view_type == "Boxplot") {
+      
+      ggplot(df, aes(x = surface, y = win_rate, fill = surface)) +
+        geom_boxplot(alpha = 0.7) +
+        geom_jitter(width = 0.2, alpha = 0.25) +
+        facet_wrap(~country) +
+        scale_fill_manual(values = surface_colors) +
+        labs(
+          title = "Win Rate Distribution by Surface",
+          x = "Surface",
+          y = "Win Rate"
+        ) +
+        theme_minimal()
+    }
+    
+
+    else if (input$view_type == "Density Plot") {
+      
+      ggplot(df, aes(x = win_rate, fill = surface, color = surface)) +
+        geom_density(alpha = 0.35, linewidth = 1) +
+        facet_wrap(~country) +
+        scale_fill_manual(values = surface_colors) +
+        scale_color_manual(values = surface_colors) +
+        labs(
+          title = "Win Rate Distribution by Surface (Density View)",
+          x = "Win Rate",
+          y = "Density"
+        ) +
+        theme_minimal()
+    }
   })
 }
 
 shinyApp(ui = ui, server = server)
+
 ```
 
 
