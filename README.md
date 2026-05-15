@@ -23,8 +23,9 @@ This project includes multiple visual approaches:
 - **Scatterplots:** Relationship between surface exposure and win rate
 - **Heatmap:** Relative performance across surfaces by country
 - **Bar Charts:** Surface Exposure and Specialization scores across countries
-- **Boxplots (Shiny App):** Direct country-to-country surface comparisons
+- **Boxplot (Shiny App):** Direct country-to-country surface comparisons
 - **Animated Line Graph:** Changes in surface-specific win rate rankings over time
+- **World Map:** Average win rates by country with a tooltip to view surface-specific win rates
 
 ## Key Findings
 - Most countries show relatively small differences in performance across surfaces.
@@ -37,6 +38,7 @@ The results challenge the traditional narrative of surface specialization in ten
 
 ## Tools Used
 - R
+- Tableau
 - ggplot2
 - shiny
 - dplyr
@@ -45,7 +47,7 @@ The results challenge the traditional narrative of surface specialization in ten
 ## How to View the Project
 - The full write-up is available as a static HTML report.
 - Interactive Shiny visualizations are linked within the report.
-- Key figures are embedded directly for reproducibility and presentation clarity.
+- The code used can be accessed via the.Rmd file in this repository.
 
 ## Author
 Annabel Brawn  
